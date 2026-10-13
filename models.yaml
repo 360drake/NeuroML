@@ -1,0 +1,49 @@
+RandomForestClassifier:
+  model: sklearn.ensemble.RandomForestClassifier
+  params:
+    criterion:
+    - gini
+    - entropy
+    - log_loss
+    max_depth:
+    - 1
+    - 1000
+    - null
+    min_samples_leaf:
+    - 1
+    - 50
+    - 1
+    min_samples_split:
+    - 2
+    - 50
+    - 2
+    n_estimators:
+    - 10
+    - 1000
+    - 100
+  type: classifier
+RandomForestRegressor:
+  model: sklearn.ensemble.RandomForestRegressor
+  params:
+    criterion:
+    - squared_error
+    - absolute_error
+    - friedman_mse
+    - poisson
+    max_depth:
+    - 1
+    - 1000
+    - null
+    min_samples_leaf:
+    - 1
+    - 50
+    - 1
+    min_samples_split:
+    - 2
+    - 50
+    - 2
+    n_estimators:
+    - 10
+    - 1000
+    - 100
+  type: regressor
