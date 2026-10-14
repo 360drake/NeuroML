@@ -8,6 +8,7 @@ from sklearn.model_selection import cross_validate
 from sklearn.preprocessing import StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from sklearn.base import clone
 import matplotlib.pyplot as plt
 import importlib
 import utils
@@ -30,6 +31,45 @@ if 'model_dict' not in st.session_state:
         st.session_state.model_dict = utils.read_models_from_json('model_dict.json')
     except Exception as e:
         st.error(str(e))
+
+### Model-specific Functions ###
+def permutation_test(model, X, y, original_score, n_permutations=1000, n_jobs=1):
+    '''
+    Perform a permutation test to assess the significance of the model's performance.
+    
+    Parameters:
+    - model: The trained model (Pipeline).
+    - X: Feature data (DataFrame).
+    - y: Target variable (Series or array).
+    - original_score: The original model score.
+    - n_permutations: Number of permutations to perform.
+    - n_jobs: Number of parallel jobs for cross-validation.
+    
+    Returns:
+    - p_value: The p-value from the permutation test.
+    '''
+    perm_progress = st.progress(0)
+    perm_scores = []
+    perm_test_model = clone(model)  # Clone the model to avoid altering the original
+    permutation_ids = utils.generate_permutation_ids(len(y), n_permutations) #initialize permutation ids
+    
+    for i, perm_indices in enumerate(permutation_ids, start=1):
+        y_permuted = y[perm_indices]
+        perm_score = cross_validate(
+            perm_test_model,
+             X, y_permuted,
+             cv=5,
+             return_train_score=False,
+             n_jobs=n_jobs
+             )["test_score"].mean()
+        perm_scores.append(perm_score)
+        perm_progress.progress(i / n_permutations, text=f"Permutation {i}/{n_permutations} completed.")
+
+    perm_progress.empty()  # Clear the progress bar after completion
+    p_value = (np.count_nonzero(np.array(perm_scores) >= original_score) + 1) / (n_permutations + 1)  # Add 1 to numerator and denominator for continuity correction
+    
+    return p_value
+
 
 # Title and description for the Streamlit app
 st.title("🧪 No-Code ML for Neuroscience")
@@ -132,7 +172,7 @@ with st.sidebar:
                 # st.session_state.covariate_features = covariate_variables             
 
 # Main tabs
-tab1, tab2 = st.tabs(["📊 Load and train", "📈 Results"])
+tab1, tab2, tab3 = st.tabs(["📊 Load and train", "Statistical Analysis", "📈 Results"])
 
 # Tab 1: Preprocessing and model training
 with tab1:
@@ -178,11 +218,14 @@ with tab1:
         st.info("Please upload training data to visualize feature space.")
     else:
         st.subheader("2. Model Training")
-
+        n_jobs = 1
+        parallelize = st.checkbox("Parallelization Acceleration", value=False, help="Enable parallelization  across multiple coresto speed up model training if your system supports it.")
+        if parallelize:
+            n_jobs = -1  # Use all available cores for parallel processing
         if st.button("Train Model"):
             with st.spinner("Training model..."):
                 X = st.session_state.train_data
-                y = st.session_state.target_variable.values
+                y = st.session_state.target_variable.values.ravel()
                 scale_features = [
                     column for column in X.columns
                     if column not in st.session_state.cat_features
@@ -200,7 +243,8 @@ with tab1:
                     X,
                     y,
                     cv=5,
-                    return_train_score=True
+                    return_train_score=True,
+                    n_jobs=n_jobs
                 )
                 model.fit(X, y)
             
@@ -211,9 +255,56 @@ with tab1:
 
             st.success("✅ Model trained successfully!")
     
+# Tab 2: Statistical Analysis
+with tab2:
+    st.subheader("Permutation Test for Model Significance")
+    perm_test_done = False
+    if st.session_state.model is not None:
+        n_permutations = st.number_input(
+            "Number of Permutations",
+            min_value=100,
+            max_value=10000,
+            value=1000,
+            step=100,
+            help="Specify the number of permutations to perform for the permutation test"
+        )
+        perm_jobs = 1
+        parallelize_perm =st.checkbox("Parallelize Permutation Test", value=False, help="Enable parallelization across multiple cores to speed up the permutation test if your system supports it.")
+        if parallelize_perm:
+            perm_jobs = -1  # Use all available cores for parallel processing
 
-# Tab 2: Results and Information
-with tab2:      
+        # Permutation Test
+        if st.button("Run Permutation Test"):
+            with st.spinner("Running permutation test..."):
+                X = st.session_state.train_data
+                y = st.session_state.target_variable.values.ravel()
+                model = st.session_state.model
+                n_samples = len(y)
+                p_value = permutation_test(
+                    model,
+                    X, y,
+                    st.session_state.test_scores.mean(),
+                    n_permutations=n_permutations,
+                    n_jobs=perm_jobs)
+                
+
+            st.success("✅ Permutation test completed!")
+            perm_test_done = True
+            
+        if perm_test_done:
+            model_type = st.session_state.model_dict[model_name]['type']
+            if model_type == 'regressor':
+                st.write(f"Original Model R2 Score: {st.session_state.test_scores.mean():.4f}")
+                st.write(f"P-value from Permutation Test: {p_value:.4f}")        
+            elif model_type == 'classifier':
+                st.write(f"Original Model Accuracy: {st.session_state.test_scores.mean():.4f}")
+                st.write(f"P-value from Permutation Test: {p_value:.4f}")
+    else:
+        st.info("The model has not been trained yet. Please complete model training to view statistical analysis.")
+
+
+# Tab 3: Results and Information
+with tab3:      
     st.subheader("Data Statistics")
     if st.session_state.model is not None:
         model_type = st.session_state.model_dict[model_name]['type']

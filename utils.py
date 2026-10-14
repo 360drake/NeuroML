@@ -7,6 +7,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+import numpy as np
 import yaml
 import json
 
@@ -44,6 +45,18 @@ def read_models_from_json(file_path):
     except Exception as e:
         raise ValueError(f"Error in JSON format: {str(e)}")
     return models
+
+## Statistical Tests ##
+def generate_permutation_ids(n_samples, n_permutations):
+    '''
+    Generate permutation IDs for permutation tests
+    '''
+    rng = np.random.default_rng(seed=42)  # Set a random seed for reproducibility
+    permutation_ids = []
+    for _ in range(n_permutations):
+        permuted_indices = rng.permutation(n_samples)
+        permutation_ids.append(permuted_indices)
+    return permutation_ids
 
 ## Visualizations ##
 def plot_PCA_tSNE_feature_space(features, labels=None, predictions=None, title="Feature Space"):
