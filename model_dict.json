@@ -1,1 +1,137 @@
-{"RandomForestClassifier": {"model": "sklearn.ensemble.RandomForestClassifier", "params": {"criterion": ["gini", "entropy", "log_loss"], "max_depth": [1, 1000, null], "min_samples_leaf": [1, 50, 1], "min_samples_split": [2, 50, 2], "n_estimators": [10, 1000, 100]}, "type": "classifier"}, "RandomForestRegressor": {"model": "sklearn.ensemble.RandomForestRegressor", "params": {"criterion": ["squared_error", "absolute_error", "poisson"], "max_depth": [1, 1000, null], "min_samples_leaf": [1, 50, 1], "min_samples_split": [2, 50, 2], "n_estimators": [10, 1000, 100]}, "type": "regressor"}, "SupportVectorClassifier": {"model": "sklearn.svm.SVC", "params": {"C": [0.0, 10.0, 1.0], "kernel": ["linear", "rbf", "poly", "sigmoid"], "degree": [1, 10, 3], "gamma": [0.0, 10.0, 0.1], "coef0": [-10.0, 10.0, 0.0]}, "type": "classifier"}, "SupportVectorRegressor": {"model": "sklearn.svm.SVR", "params": {"C": [0.0, 10.0, 1.0], "kernel": ["linear", "rbf", "poly", "sigmoid"], "degree": [1, 10, 3], "gamma": [0.0, 10.0, 0.1], "coef0": [-10.0, 10.0, 0.0], "epsilon": [0.0, 1.0, 0.1]}, "type": "regressor"}}
+{
+    "RandomForestClassifier": {
+        "model": "sklearn.ensemble.RandomForestClassifier",
+        "params": {
+            "criterion": [
+                "gini",
+                "entropy",
+                "log_loss"
+            ],
+            "max_depth": [
+                1,
+                1000,
+                null
+            ],
+            "min_samples_leaf": [
+                1,
+                50,
+                1
+            ],
+            "min_samples_split": [
+                2,
+                50,
+                2
+            ],
+            "n_estimators": [
+                10,
+                1000,
+                100
+            ]
+        },
+        "type": "classifier",
+        "proba": true
+    },
+    "RandomForestRegressor": {
+        "model": "sklearn.ensemble.RandomForestRegressor",
+        "params": {
+            "criterion": [
+                "squared_error",
+                "absolute_error",
+                "poisson"
+            ],
+            "max_depth": [
+                1,
+                1000,
+                null
+            ],
+            "min_samples_leaf": [
+                1,
+                50,
+                1
+            ],
+            "min_samples_split": [
+                2,
+                50,
+                2
+            ],
+            "n_estimators": [
+                10,
+                1000,
+                100
+            ]
+        },
+        "type": "regressor",
+        "proba": true
+    },
+    "SupportVectorClassifier": {
+        "model": "sklearn.svm.SVC",
+        "params": {
+            "C": [
+                0.01,
+                10.0,
+                1.0
+            ],
+            "kernel": [
+                "linear",
+                "rbf",
+                "poly",
+                "sigmoid"
+            ],
+            "degree": [
+                1,
+                10,
+                3
+            ],
+            "gamma": [
+                0.0,
+                10.0,
+                0.1
+            ],
+            "coef0": [
+                -10.0,
+                10.0,
+                0.0
+            ]
+        },
+        "type": "classifier",
+        "proba": true
+    },
+    "SupportVectorRegressor": {
+        "model": "sklearn.svm.SVR",
+        "params": {
+            "C": [
+                0.01,
+                10.0,
+                1.0
+            ],
+            "kernel": [
+                "linear",
+                "rbf",
+                "poly",
+                "sigmoid"
+            ],
+            "degree": [
+                1,
+                10,
+                3
+            ],
+            "gamma": [
+                0.0,
+                10.0,
+                0.1
+            ],
+            "coef0": [
+                -10.0,
+                10.0,
+                0.0
+            ],
+            "epsilon": [
+                0.0,
+                1.0,
+                0.1
+            ]
+        },
+        "type": "regressor",
+        "proba": true
+    }
+}

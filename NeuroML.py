@@ -3,8 +3,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-
-from sklearn.model_selection import cross_validate
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, log_loss, f1_score, precision_score, recall_score, roc_auc_score, mean_squared_error, mean_absolute_error, root_mean_squared_error, median_absolute_error, r2_score
+from sklearn.model_selection import cross_validate, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -32,43 +32,6 @@ if 'model_dict' not in st.session_state:
     except Exception as e:
         st.error(str(e))
 
-### Model-specific Functions ###
-def permutation_test(model, X, y, original_score, n_permutations=1000, n_jobs=1):
-    '''
-    Perform a permutation test to assess the significance of the model's performance.
-    
-    Parameters:
-    - model: The trained model (Pipeline).
-    - X: Feature data (DataFrame).
-    - y: Target variable (Series or array).
-    - original_score: The original model score.
-    - n_permutations: Number of permutations to perform.
-    - n_jobs: Number of parallel jobs for cross-validation.
-    
-    Returns:
-    - p_value: The p-value from the permutation test.
-    '''
-    perm_progress = st.progress(0)
-    perm_scores = []
-    perm_test_model = clone(model)  # Clone the model to avoid altering the original
-    permutation_ids = utils.generate_permutation_ids(len(y), n_permutations) #initialize permutation ids
-    
-    for i, perm_indices in enumerate(permutation_ids, start=1):
-        y_permuted = y[perm_indices]
-        perm_score = cross_validate(
-            perm_test_model,
-             X, y_permuted,
-             cv=5,
-             return_train_score=False,
-             n_jobs=n_jobs
-             )["test_score"].mean()
-        perm_scores.append(perm_score)
-        perm_progress.progress(i / n_permutations, text=f"Permutation {i}/{n_permutations} completed.")
-
-    perm_progress.empty()  # Clear the progress bar after completion
-    p_value = (np.count_nonzero(np.array(perm_scores) >= original_score) + 1) / (n_permutations + 1)  # Add 1 to numerator and denominator for continuity correction
-    
-    return p_value
 
 
 # Title and description for the Streamlit app
@@ -105,31 +68,34 @@ with st.sidebar:
 
         # Identifying target variable and other relevant columns
         if input_df is not None:
-            form = st.form("feature_selection_form")
-            form.subheader("Identify features and target variable")
+            input_form = st.form("feature_selection_form")
+            input_form.subheader("Identify features and target variable")
             
-            target_variable = form.selectbox(
+            target_variable = input_form.selectbox(
                 "Select target variable (label column)",
                 options=input_df.columns.tolist(),
                 index=0,
                 help="Choose which column contains the target values to predict"
             )
 
-            subject_id_variable = form.selectbox(
-                "Select Subject ID variable (optional)",
+            covariate_variables = input_form.multiselect(
+                "Select covariate features (optional)",
                 options=input_df.columns.tolist(),
-                index=None,
-                help="Choose which column contains unique subject identifiers (optional)"
+                help="Choose which features to include as covariates in the analysis. Certain statistical methods can account for covariates separately"
             )
-
-            # covariate feature selection placeholder
+            
+            excluded_variables = input_form.multiselect(
+                "Select variables to exclude (optional)",
+                options=input_df.columns.tolist(),
+                help="Choose which features to exclude from the analysis, i.e. subject ID columns or other non-predictive features"
+            )
             
             #confirm the data identification
-            data_identified = form.form_submit_button("Confirm")
+            data_identified = input_form.form_submit_button("Confirm")
 
             if data_identified:
                 # Separate features and target variable
-                feature_cols = [col for col in input_df.columns if col not in [target_variable, subject_id_variable]]
+                feature_cols = [col for col in input_df.columns if col not in [target_variable] + excluded_variables]
                 X = input_df[feature_cols]
                 y = input_df[[target_variable]]
 
@@ -168,8 +134,8 @@ with st.sidebar:
                 st.session_state.train_features = X.columns.tolist()
                 st.session_state.cat_features = X_binary
                 st.session_state.target_variable = y.copy()
-                st.session_state.subject_id_feature = subject_id_variable
-                # st.session_state.covariate_features = covariate_variables             
+                st.session_state.excluded_features = excluded_variables
+                st.session_state.covariate_features = covariate_variables             
 
 # Main tabs
 tab1, tab2, tab3 = st.tabs(["📊 Load and train", "Statistical Analysis", "📈 Results"])
@@ -178,39 +144,72 @@ tab1, tab2, tab3 = st.tabs(["📊 Load and train", "Statistical Analysis", "📈
 with tab1:
 
     st.header("1. Model Settings")
-    
-    st.subheader("Model Selection")
-    model_name = st.selectbox(
+    model_params = {}
+    gridsearch_params = {}
+    model_container = st.container()
+    with model_container:
+        st.subheader("Model Selection")
+        model_name = st.selectbox(
         "Model type",
         list(st.session_state.model_dict.keys()),
-        help="Choose regression for continuous values or classification for categorical data"
-    )
-    model_callable = st.session_state.model_dict[model_name]['model']
-    module_name, _, class_name = model_callable.rpartition('.')
-    try:
-        model_module = importlib.import_module(module_name)
-        model_class = getattr(model_module, class_name)
-    except ImportError as e:
-        st.error(f"Error importing model: {e}")
+        help="Choose regression models for continuous values or classification for categorical data"
+        )
+        model_callable = st.session_state.model_dict[model_name]['model']
+        module_name, _, class_name = model_callable.rpartition('.')
+        try:
+            model_module = importlib.import_module(module_name)
+            model_class = getattr(model_module, class_name)
+        except ImportError as e:
+            st.error(f"Error importing model: {e}")
 
-    model_params = {}
-    if model_name is not None:
-        for param_name, param_options in st.session_state.model_dict[model_name]['params'].items():
-            if not isinstance(param_options, list):
-                param_value = param_options
-            elif isinstance(param_options[0], (int, float)):
-                param_value = st.number_input(
-                    label=param_name,
-                    min_value=param_options[0],
-                    max_value=param_options[1],
-                    value=param_options[2])
-            else:
-                param_value = st.segmented_control(
-                    label=param_name,
-                    options=param_options,
-                    default = param_options[0]
-                )
-            model_params[param_name] = param_value
+    with model_container:
+        if model_name is not None:
+            gridsearch_column, parameter_column = st.columns([1, 4])
+            with gridsearch_column:
+                st.subheader("Grid Search")
+            with parameter_column:
+                st.subheader("Parameters")
+
+            for param_name, param_options in st.session_state.model_dict[model_name]['params'].items():
+                model_param_name = "model__" + param_name
+                param_cols = st.columns([1, 4])
+                with param_cols[0]:
+                    if isinstance(param_options, list):
+                        use_gridsearch = st.checkbox(
+                            param_name,
+                            value=False,
+                            key=f"gridsearch_{model_name}_{param_name}",
+                            label_visibility="hidden"
+                        )
+                with param_cols[1]:
+                    if not isinstance(param_options, list):
+                        param_value = param_options
+                    elif isinstance(param_options[0], (int, float)):
+                        param_value = st.number_input(
+                            label=param_name,
+                            min_value=param_options[0],
+                            max_value=param_options[1],
+                            value=param_options[2],
+                            disabled=use_gridsearch
+                        )
+                        if use_gridsearch:
+                            param_grid = np.linspace(param_options[0], param_options[1], 5, dtype=type(param_options[0]))
+                    else:
+                        param_value = st.segmented_control(
+                            label=param_name,
+                            options=param_options,
+                            default=param_options[0],
+                            disabled=use_gridsearch
+                        )
+                        if use_gridsearch:
+                            param_grid = param_options
+
+                if use_gridsearch:
+                    gridsearch_params[model_param_name] = param_grid
+                else:
+                    model_params[model_param_name] = param_value
+
+            gridsearch = bool(gridsearch_params)
 
     model_type = st.session_state.model_dict[model_name]['type']
 
@@ -218,42 +217,42 @@ with tab1:
         st.info("Please upload training data to visualize feature space.")
     else:
         st.subheader("2. Model Training")
-        n_jobs = 1
-        parallelize = st.checkbox("Parallelization Acceleration", value=False, help="Enable parallelization  across multiple coresto speed up model training if your system supports it.")
-        if parallelize:
-            n_jobs = -1  # Use all available cores for parallel processing
-        if st.button("Train Model"):
-            with st.spinner("Training model..."):
-                X = st.session_state.train_data
-                y = st.session_state.target_variable.values.ravel()
-                scale_features = [
-                    column for column in X.columns
-                    if column not in st.session_state.cat_features
-                ]
-                scaler = ColumnTransformer(
-                    [("standard_scaler", StandardScaler(), scale_features)],
-                    remainder="passthrough"
-                )
-                model = Pipeline([
-                    ("scaler", scaler),
-                    ("model", model_class(**model_params, random_state=42))
-                ])
-                cv_scores = cross_validate(
-                    model,
-                    X,
-                    y,
-                    cv=5,
-                    return_train_score=True,
-                    n_jobs=n_jobs
-                )
-                model.fit(X, y)
-            
-            # Save the model to session state
-            st.session_state.model = model
-            st.session_state.train_scores = cv_scores["train_score"]
-            st.session_state.test_scores = cv_scores["test_score"]
+        train_container = st.container()
+        with train_container:
+            n_jobs = 1
+            parallelize = st.checkbox("Parallelization Acceleration", value=False, help="Enable parallelization  across multiple coresto speed up model training if your system supports it.")
+            if parallelize:
+                n_jobs = -1  # Use all available cores for parallel processing
+            cv = st.number_input(
+                "Number of Cross-Validation Folds",
+                min_value=2,
+                max_value=20,
+                value=5,
+                step=1,
+                help="Specify the number of cross-validation k-folds for model training"
+            )
+            if st.button("Train Model"):
+                with st.spinner("Training model..."):
+                    X = st.session_state.train_data
+                    y = st.session_state.target_variable.values.ravel()
+                    model, cv_scores = utils.train_model(
+                        model_class,
+                        model_params,
+                        X=X,
+                        y=y,
+                        cat_features=st.session_state.cat_features,
+                        gridsearch=gridsearch,
+                        gridsearch_params=gridsearch_params,
+                        cv=cv,
+                        n_jobs=n_jobs
+                    )
 
-            st.success("✅ Model trained successfully!")
+                # Save the model to session state
+                st.session_state.model = model
+                st.session_state.train_scores = cv_scores["train_score"]
+                st.session_state.test_scores = cv_scores["test_score"]
+
+                st.success("✅ Model trained successfully!")
     
 # Tab 2: Statistical Analysis
 with tab2:
@@ -269,50 +268,71 @@ with tab2:
             help="Specify the number of permutations to perform for the permutation test"
         )
         perm_jobs = 1
-        parallelize_perm =st.checkbox("Parallelize Permutation Test", value=False, help="Enable parallelization across multiple cores to speed up the permutation test if your system supports it.")
+        parallelize_perm =st.checkbox(
+            "Parallelize Permutation Test",
+            value=False,
+            help="Enable parallelization across multiple cores to speed up the permutation test if your system supports it."
+            )
         if parallelize_perm:
             perm_jobs = -1  # Use all available cores for parallel processing
 
+        covariate_exclusion = st.checkbox(
+            "Covariate Exclusion",
+            value=False,
+            help="Traditional Permutation Test permutes labels across all input features. Enabling this option will exclude specified covariate features from permutation,\nlinking them to the original labels. This limits the statistical analysis to non-covariate features only."
+            )
+
         # Permutation Test
         if st.button("Run Permutation Test"):
+            progress_bar = st.progress(
+                0,
+                text=f"Permutations tested: 0/{n_permutations}"
+            )
+
+            def update_permutation_progress(iteration):
+                progress_bar.progress(
+                    iteration / n_permutations,
+                    text=f"Permutations tested: {iteration}/{n_permutations}"
+                )
+
             with st.spinner("Running permutation test..."):
                 X = st.session_state.train_data
                 y = st.session_state.target_variable.values.ravel()
                 model = st.session_state.model
                 n_samples = len(y)
-                p_value = permutation_test(
+                perm_scores = utils.permutation_test(
                     model,
                     X, y,
-                    st.session_state.test_scores.mean(),
+                    covariate_exclusion=covariate_exclusion,
+                    covariate_variables=st.session_state.covariate_features,
                     n_permutations=n_permutations,
-                    n_jobs=perm_jobs)
+                    n_jobs=perm_jobs,
+                    progress_callback=update_permutation_progress
+                )
                 
 
             st.success("✅ Permutation test completed!")
-            perm_test_done = True
+            st.session_state.perm_scores = perm_scores
             
-        if perm_test_done:
-            model_type = st.session_state.model_dict[model_name]['type']
-            if model_type == 'regressor':
-                st.write(f"Original Model R2 Score: {st.session_state.test_scores.mean():.4f}")
-                st.write(f"P-value from Permutation Test: {p_value:.4f}")        
-            elif model_type == 'classifier':
-                st.write(f"Original Model Accuracy: {st.session_state.test_scores.mean():.4f}")
-                st.write(f"P-value from Permutation Test: {p_value:.4f}")
     else:
         st.info("The model has not been trained yet. Please complete model training to view statistical analysis.")
 
 
 # Tab 3: Results and Information
-with tab3:      
-    st.subheader("Data Statistics")
+with tab3:
     if st.session_state.model is not None:
         model_type = st.session_state.model_dict[model_name]['type']
-
+        st.subheader("Data Statistics")
         # Display descriptive statistics of the target variable
-        data_cols = st.columns([1,2])
-        desc_stats = st.session_state.target_variable.describe()
-        
+        if model_type == 'classifier':
+            target_values = st.session_state.target_variable.to_numpy()
+            target_labels = np.unique(target_values, return_counts=True)
+            target_percents = target_labels[1] / len(st.session_state.target_variable)
+            desc_stats = pd.DataFrame({'Label': target_labels[0], 'Count': target_labels[1], 'Percent': target_percents})
+        else:
+            desc_stats = st.session_state.target_variable.describe()
+
+        data_cols = st.columns([1, 2])
         data_cols[0].dataframe(desc_stats)
 
         # Histogram of target variable (regression)
@@ -325,7 +345,7 @@ with tab3:
             ax.set_title('Distribution of the Target Variable', pad=20)
             ax.grid(True, alpha=0.3)
             data_cols[1].pyplot(fig_target)
-
+        # Pie chart of target variable (classification)
         if model_type == 'classifier':
             fig_target, ax = plt.subplots(figsize=(10, 4))
             target_np = st.session_state.target_variable.values
@@ -335,12 +355,12 @@ with tab3:
             ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
             data_cols[1].pyplot(fig_target)
 
-        results_cols = st.columns(2)
-        
+        # Model training results
         train_scores = st.session_state.train_scores
         test_scores = st.session_state.test_scores
         train_score = np.mean(train_scores)
         test_score = np.mean(test_scores)
+        results_cols = st.columns(2)
         results_cols[0].subheader("Model Performance")
         if model_type == 'regressor':
             results_cols[0].metric(
@@ -367,6 +387,23 @@ with tab3:
             f"5-fold test scores: {np.array2string(test_scores, precision=4)}"
         )
 
+        if 'perm_scores' in st.session_state:
+            results_cols[1].subheader("Statistical Test Results")
+            stat_test = "Permutation"
+            results_cols[1].write(f"Statistical Test: {stat_test} Test")
+            if model_type == 'regressor':
+                score_metric = "R²"
+            elif model_type == 'classifier':
+                score_metric = "Accuracy"
+            results_cols[1].metric(
+                f"Permutation {score_metric} Score",
+                f"{np.mean(st.session_state.perm_scores):.4f} ± {np.std(st.session_state.perm_scores):.4f}"
+            )
+            p_value = (np.sum(st.session_state.perm_scores >= test_score) + 1) / (len(st.session_state.perm_scores) + 1) 
+            results_cols[1].metric(
+                "Permutation Test p-value",
+                f"{p_value:.4f}"
+            )
 
     else:
         st.info("The model has not been trained yet. Please complete model training to view results.")
